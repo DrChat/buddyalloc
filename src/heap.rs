@@ -13,7 +13,7 @@
 
 use core::cmp::{max, min};
 use core::mem::size_of;
-use core::ptr;
+use core::ptr::{self, NonNull};
 
 use crate::math::PowersOf2;
 
@@ -38,7 +38,7 @@ impl FreeBlock {
 /// The interface to a heap.  This data structure is stored _outside_ the
 /// heap somewhere, because every single byte of our heap is potentially
 /// available for allocation.
-pub struct Heap<'a> {
+pub struct Heap<const N: usize> {
     /// The base address of our heap.  This must be aligned on a
     /// `MIN_HEAP_ALIGN` boundary.
     heap_base: *mut u8,
@@ -50,7 +50,7 @@ pub struct Heap<'a> {
     /// the smallest block size we can allocate, and the list at the end
     /// can only contain a single free block the size of our entire heap,
     /// and only when no memory is allocated.
-    free_lists: &'a mut [*mut FreeBlock],
+    free_lists: [*mut FreeBlock; N],
 
     /// Our minimum block size.  This is calculated based on `heap_size`
     /// and the length of the provided `free_lists` array, and it must be
@@ -64,32 +64,25 @@ pub struct Heap<'a> {
 }
 
 // A Heap struct is the sole owner of the memory it manages
-unsafe impl<'a> Send for Heap<'a> {}
+unsafe impl<const N: usize> Send for Heap<N> {}
 
-impl<'a> Heap<'a> {
+impl<const N: usize> Heap<N> {
     /// Create a new heap.  `heap_base` must be aligned on a
     /// `MIN_HEAP_ALIGN` boundary, `heap_size` must be a power of 2, and
     /// `heap_size / 2.pow(free_lists.len()-1)` must be greater than or
     /// equal to `size_of::<FreeBlock>()`.  Passing in invalid parameters
     /// may do horrible things.
     pub unsafe fn new(
-        heap_base: *mut u8,
-        heap_size: usize,
-        free_lists: &mut [*mut FreeBlock])
-        -> Heap
+        heap_base: NonNull<u8>,
+        heap_size: usize)
+        -> Self
     {
-        // The heap base must not be null.
-        assert!(heap_base != ptr::null_mut());
-
-        // We must have at least one free list.
-        assert!(free_lists.len() > 0);
-
         // Calculate our minimum block size based on the number of free
         // lists we have available.
-        let min_block_size = heap_size >> (free_lists.len()-1);
+        let min_block_size = heap_size >> (N-1);
 
         // The heap must be aligned on a 4K bounday.
-        assert_eq!(heap_base as usize & (MIN_HEAP_ALIGN-1), 0);
+        assert_eq!(heap_base.as_ptr() as usize & (MIN_HEAP_ALIGN-1), 0);
 
         // The heap must be big enough to contain at least one block.
         assert!(heap_size >= min_block_size);
@@ -104,19 +97,14 @@ impl<'a> Heap<'a> {
 
         // We must have one free list per possible heap block size.
         assert_eq!(min_block_size *
-                   (2u32.pow(free_lists.len() as u32 - 1)) as usize,
+                   (2u32.pow(N as u32 - 1)) as usize,
                    heap_size);
-
-        // Zero out our free list pointers.
-        for ptr in free_lists.iter_mut() {
-            *ptr = ptr::null_mut();
-        }
 
         // Store all the info about our heap in our struct.
         let mut result = Heap {
-            heap_base: heap_base,
+            heap_base: heap_base.as_ptr(),
             heap_size: heap_size,
-            free_lists: free_lists,
+            free_lists: [0 as *mut _; N],
             min_block_size: min_block_size,
             min_block_size_log2: min_block_size.log2(),
         };
@@ -125,7 +113,7 @@ impl<'a> Heap<'a> {
         // single block.
         let order = result.allocation_order(heap_size, 1)
             .expect("Failed to calculate order for root heap block");
-        result.free_list_insert(order, heap_base);
+        result.free_list_insert(order, heap_base.as_ptr());
         
         // Return our newly-created heap.
         result
@@ -295,7 +283,7 @@ impl<'a> Heap<'a> {
     /// Given a `block` with the specified `order`, find the "buddy" block,
     /// that is, the other half of the block we originally split it from,
     /// and also the block we could potentially merge it with.
-    pub unsafe fn buddy(&self, order: usize, block: *mut u8) -> Option<*mut u8> {
+    pub fn buddy(&self, order: usize, block: *mut u8) -> Option<*mut u8> {
         let relative = (block as usize) - (self.heap_base as usize);
         let size = self.order_size(order);
         if size >= self.heap_size {
@@ -304,7 +292,7 @@ impl<'a> Heap<'a> {
         } else {
             // Fun: We can find our buddy by xoring the right bit in our
             // offset from the base of the heap.
-            Some(self.heap_base.offset((relative ^ size) as isize))
+            Some(unsafe { self.heap_base.offset((relative ^ size) as isize) })
         }
     }
 
@@ -351,19 +339,46 @@ mod test {
 
     extern "C" {
         /// We need this to allocate aligned memory for our heap.
+        #[cfg(unix)]
         fn memalign(alignment: usize, size: usize) -> *mut u8;
-
         // Release our memory.
+        #[cfg(unix)]
         fn free(ptr: *mut u8);
+
+        #[cfg(windows)]
+        fn _aligned_malloc(size: usize, alignment: usize) -> *mut u8;
+        #[cfg(windows)]
+        fn _aligned_free(ptr: *mut u8);
+    }
+    
+    /// This function wraps aligned allocation for Windows/Unix.
+    unsafe fn aligned_alloc(alignment: usize, size: usize) -> *mut u8 {
+        #[cfg(unix)] {
+            memalign(alignment, usize)
+        }
+        
+        #[cfg(windows)] {
+            _aligned_malloc(size, alignment)
+        }
+    }
+    
+    /// This function wraps aligned frees for Windows/Unix.
+    unsafe fn aligned_free(ptr: *mut u8) {
+        #[cfg(unix)] {
+            free(ptr)
+        }
+
+        #[cfg(windows)] {
+            _aligned_free(ptr)
+        }
     }
 
     #[test]
     fn test_allocation_size_and_order() {
         unsafe {
             let heap_size = 256;
-            let mem = memalign(4096, heap_size);
-            let mut free_lists: [*mut FreeBlock; 5] = [0 as *mut _; 5];
-            let heap = Heap::new(mem, heap_size, &mut free_lists);
+            let mem = aligned_alloc(4096, heap_size);
+            let heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size);
 
             // TEST NEEDED: Can't align beyond MIN_HEAP_ALIGN.
 
@@ -391,7 +406,7 @@ mod test {
             assert_eq!(Some(4), heap.allocation_order(256, 256));
             assert_eq!(None, heap.allocation_order(512, 512));
 
-            free(mem);
+            aligned_free(mem);
         }
     }
 
@@ -399,9 +414,8 @@ mod test {
     fn test_buddy() {
         unsafe {
             let heap_size = 256;
-            let mem = memalign(4096, heap_size);
-            let mut free_lists: [*mut FreeBlock; 5] = [0 as *mut _; 5];
-            let heap = Heap::new(mem, heap_size, &mut free_lists);
+            let mem = aligned_alloc(4096, heap_size);
+            let heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size);
 
             let block_16_0 = mem;
             let block_16_1 = mem.offset(16);
@@ -421,7 +435,7 @@ mod test {
             let block_256_0 = mem;
             assert_eq!(None, heap.buddy(4, block_256_0));
 
-            free(mem);
+            aligned_free(mem);
         }
     }
 
@@ -429,9 +443,8 @@ mod test {
     fn test_alloc_and_dealloc() {
         unsafe {
             let heap_size = 256;
-            let mem = memalign(4096, heap_size);
-            let mut free_lists: [*mut FreeBlock; 5] = [0 as *mut _; 5];
-            let mut heap = Heap::new(mem, heap_size, &mut free_lists);
+            let mem = aligned_alloc(4096, heap_size);
+            let mut heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size);
 
             let block_16_0 = heap.allocate(8, 8);
             assert_eq!(mem, block_16_0);
@@ -477,7 +490,7 @@ mod test {
             let block_256_0 = heap.allocate(256, 256);
             assert_eq!(mem.offset(0), block_256_0);
 
-            free(mem);
+            aligned_free(mem);
         }
     }
 }        
