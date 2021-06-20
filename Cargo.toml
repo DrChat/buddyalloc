@@ -1,0 +1,22 @@
+[package]
+name = "alloc_buddy_simple"
+version = "0.1.2"
+authors = ["Eric Kidd <git@randomhacks.net>", "Jethro Beekman <jethro@jbeekman.nl>"]
+
+description = "Simple, drop-in replacement allocator for Rust running on bare metal (no_std)"
+homepage = "https://github.com/emk/toyos-rs/tree/master/crates/alloc_buddy_simple"
+repository = "https://github.com/emk/toyos-rs"
+readme = "README.md"
+keywords = ["no_std", "kernel", "allocator"]
+license = "Apache-2.0/MIT"
+edition = "2018"
+
+[features]
+
+# When this feature is enabled, build this crate as the actual Rust system
+# allocator.  This also requires pulling in a spinlock crate, to control
+# access to the shared heap.
+use-as-rust-allocator = ["spin"]
+
+[dependencies]
+spin = { version = ">=0.3.4,<0.5", optional = true }
