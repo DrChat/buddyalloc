@@ -10,7 +10,6 @@
 //! size.  This simplifies a lot of bookkeeping, because all our block
 //! sizes are a power of 2, which makes it easy to have one free list per
 //! block size.
-
 use core::cmp::{max, min};
 use core::mem::size_of;
 use core::ptr::{self, NonNull};
@@ -172,10 +171,10 @@ impl<const N: usize> Heap<N> {
     }
 
     /// Pop a block off the appropriate free list.
-    unsafe fn free_list_pop(&mut self, order: usize) -> Option<*mut u8> {
+    fn free_list_pop(&mut self, order: usize) -> Option<*mut u8> {
         let candidate = self.free_lists[order];
         if candidate != ptr::null_mut() {
-            self.free_lists[order] = (*candidate).next;
+            self.free_lists[order] = unsafe { (*candidate).next };
             Some(candidate as *mut u8)
         } else {
             None
@@ -198,14 +197,14 @@ impl<const N: usize> Heap<N> {
     /// because then "nursery generation" allocations would probably tend
     /// to occur at lower addresses and then be faster to find / rule out
     /// finding.
-    unsafe fn free_list_remove(&mut self, order: usize, block: *mut u8) -> bool {
+    fn free_list_remove(&mut self, order: usize, block: *mut u8) -> bool {
         let block_ptr = block as *mut FreeBlock;
 
         // Yuck, list traversals are gross without recursion.  Here,
         // `*checking` is the pointer we want to check, and `checking` is
         // the memory location we found it at, which we'll need if we want
         // to replace the value `*checking` with a new value.
-        let mut checking: *mut *mut FreeBlock = &mut self.free_lists[order];
+        let mut checking: &mut *mut FreeBlock = &mut self.free_lists[order];
 
         // Loop until we run out of free blocks.
         while *checking != ptr::null_mut() {
@@ -213,14 +212,14 @@ impl<const N: usize> Heap<N> {
             if *checking == block_ptr {
                 // Yup, this is the one, so overwrite the value we used to
                 // get here with the next one in the sequence.
-                *checking = (*(*checking)).next;
+                *checking = unsafe { (*(*checking)).next };
                 return true;
             }
 
             // Haven't found it yet, so point `checking` at the address
             // containing our `next` field.  (Once again, this is so we'll
             // be able to reach back and overwrite it later if necessary.)
-            checking = &mut ((*(*checking)).next);
+            checking = unsafe { &mut ((*(*checking)).next) };
         }
         false
     }
@@ -240,6 +239,22 @@ impl<const N: usize> Heap<N> {
             // Insert the "upper half" of the block into the free list.
             let split = block.offset(size_to_split as isize);
             self.free_list_insert(order, split);
+        }
+    }
+
+    /// Given a `block` with the specified `order`, find the "buddy" block,
+    /// that is, the other half of the block we originally split it from,
+    /// and also the block we could potentially merge it with.
+    pub fn buddy(&self, order: usize, block: *mut u8) -> Option<*mut u8> {
+        let relative = (block as usize) - (self.heap_base as usize);
+        let size = self.order_size(order);
+        if size >= self.heap_size {
+            // The main heap itself does not have a budy.
+            None
+        } else {
+            // Fun: We can find our buddy by xoring the right bit in our
+            // offset from the base of the heap.
+            Some(unsafe { self.heap_base.offset((relative ^ size) as isize) })
         }
     }
 
@@ -276,22 +291,6 @@ impl<const N: usize> Heap<N> {
             // We can't allocate a block with the specified size and
             // alignment.
             None
-        }
-    }
-
-    /// Given a `block` with the specified `order`, find the "buddy" block,
-    /// that is, the other half of the block we originally split it from,
-    /// and also the block we could potentially merge it with.
-    pub fn buddy(&self, order: usize, block: *mut u8) -> Option<*mut u8> {
-        let relative = (block as usize) - (self.heap_base as usize);
-        let size = self.order_size(order);
-        if size >= self.heap_size {
-            // The main heap itself does not have a budy.
-            None
-        } else {
-            // Fun: We can find our buddy by xoring the right bit in our
-            // offset from the base of the heap.
-            Some(unsafe { self.heap_base.offset((relative ^ size) as isize) })
         }
     }
 
@@ -332,8 +331,6 @@ impl<const N: usize> Heap<N> {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    use core::ptr;
 
     extern "C" {
         /// We need this to allocate aligned memory for our heap.
