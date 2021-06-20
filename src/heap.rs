@@ -12,11 +12,17 @@
 //! block size.
 use core::cmp::{max, min};
 use core::mem::size_of;
-use core::ptr::{self, NonNull};
+use core::ptr::NonNull;
+use core::result::Result;
 
 use crate::math::PowersOf2;
 
 const MIN_HEAP_ALIGN: usize = 4096;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AllocationError {
+
+}
 
 /// A free block in our heap.  This is actually a header that we store at
 /// the start of the block.  We don't store any size information in the
@@ -30,7 +36,7 @@ pub struct FreeBlock {
 impl FreeBlock {
     /// Construct a `FreeBlock` header pointing at `next`.
     fn new(next: *mut FreeBlock) -> FreeBlock {
-        FreeBlock { next: next }
+        FreeBlock { next }
     }
 }
 
@@ -69,7 +75,10 @@ pub struct Heap<const N: usize> {
 unsafe impl<const N: usize> Send for Heap<N> {}
 
 impl<const N: usize> Heap<N> {
-    /// Create a new heap.  `heap_base` must be aligned on a
+    /// Create a new heap.
+    ///
+    /// # Safety
+    /// `heap_base` must be aligned on a
     /// `MIN_HEAP_ALIGN` boundary, `heap_size` must be a power of 2, and
     /// `heap_size / 2.pow(free_lists.len()-1)` must be greater than or
     /// equal to `size_of::<FreeBlock>()`.  Passing in invalid parameters
@@ -102,9 +111,9 @@ impl<const N: usize> Heap<N> {
         // Store all the info about our heap in our struct.
         let mut result = Heap {
             heap_base: heap_base.as_ptr(),
-            heap_size: heap_size,
-            free_lists: [0 as *mut _; N],
-            min_block_size: min_block_size,
+            heap_size,
+            free_lists: [core::ptr::null_mut(); N],
+            min_block_size,
             min_block_size_log2: min_block_size.log2(),
         };
 
@@ -173,7 +182,7 @@ impl<const N: usize> Heap<N> {
     /// Pop a block off the appropriate free list.
     fn free_list_pop(&mut self, order: usize) -> Option<*mut u8> {
         let candidate = self.free_lists[order];
-        if candidate != ptr::null_mut() {
+        if !candidate.is_null() {
             self.free_lists[order] = unsafe { (*candidate).next };
             Some(candidate as *mut u8)
         } else {
@@ -207,7 +216,7 @@ impl<const N: usize> Heap<N> {
         let mut checking: &mut *mut FreeBlock = &mut self.free_lists[order];
 
         // Loop until we run out of free blocks.
-        while *checking != ptr::null_mut() {
+        while !(*checking).is_null() {
             // Is this the pointer we want to remove from the free list?
             if *checking == block_ptr {
                 // Yup, this is the one, so overwrite the value we used to
@@ -226,6 +235,10 @@ impl<const N: usize> Heap<N> {
 
     /// Split a `block` of order `order` down into a block of order
     /// `order_needed`, placing any unused chunks on the free list.
+    ///
+    /// # Safety
+    /// The block must be owned by this heap, otherwise bad things
+    /// will happen.
     unsafe fn split_free_block(&mut self, block: *mut u8, mut order: usize, order_needed: usize) {
         // Get the size of our starting block.
         let mut size_to_split = self.order_size(order);
@@ -265,7 +278,7 @@ impl<const N: usize> Heap<N> {
     ///
     /// All allocated memory must be passed to `deallocate` with the same
     /// `size` and `align` parameter, or else horrible things will happen.
-    pub unsafe fn allocate(&mut self, size: usize, align: usize) -> Option<*mut u8> {
+    pub fn allocate(&mut self, size: usize, align: usize) -> Option<*mut u8> {
         // Figure out which order block we need.
         if let Some(order_needed) = self.allocation_order(size, align) {
             // Start with the smallest acceptable block size, and search
@@ -277,7 +290,8 @@ impl<const N: usize> Heap<N> {
                     // the address unchanged, because we always allocate at
                     // the head of a block.
                     if order > order_needed {
-                        self.split_free_block(block, order, order_needed);
+                        // SAFETY: The block came from the heap.
+                        unsafe { self.split_free_block(block, order, order_needed) };
                     }
 
                     // We have an allocation, so quit now.
@@ -294,7 +308,9 @@ impl<const N: usize> Heap<N> {
         }
     }
 
-    /// Deallocate a block allocated using `allocate`.  Note that the
+    /// Deallocate a block allocated using `allocate`.
+    ///
+    /// # Safety
     /// `old_size` and `align` values must match the values passed to
     /// `allocate`, or our heap will be corrupted.
     pub unsafe fn deallocate(&mut self, ptr: *mut u8, old_size: usize, align: usize) {
