@@ -72,17 +72,13 @@ impl<const N: usize> Heap<N> {
     /// `heap_size / 2.pow(free_lists.len()-1)` must be greater than or
     /// equal to `size_of::<FreeBlock>()`.  Passing in invalid parameters
     /// may do horrible things.
-    pub unsafe fn new(
-        heap_base: NonNull<u8>,
-        heap_size: usize)
-        -> Self
-    {
+    pub unsafe fn new(heap_base: NonNull<u8>, heap_size: usize) -> Self {
         // Calculate our minimum block size based on the number of free
         // lists we have available.
-        let min_block_size = heap_size >> (N-1);
+        let min_block_size = heap_size >> (N - 1);
 
         // The heap must be aligned on a 4K bounday.
-        assert_eq!(heap_base.as_ptr() as usize & (MIN_HEAP_ALIGN-1), 0);
+        assert_eq!(heap_base.as_ptr() as usize & (MIN_HEAP_ALIGN - 1), 0);
 
         // The heap must be big enough to contain at least one block.
         assert!(heap_size >= min_block_size);
@@ -96,9 +92,10 @@ impl<const N: usize> Heap<N> {
         assert!(heap_size.is_power_of_two());
 
         // We must have one free list per possible heap block size.
-        assert_eq!(min_block_size *
-                   (2u32.pow(N as u32 - 1)) as usize,
-                   heap_size);
+        assert_eq!(
+            min_block_size * (2u32.pow(N as u32 - 1)) as usize,
+            heap_size
+        );
 
         // Store all the info about our heap in our struct.
         let mut result = Heap {
@@ -111,10 +108,11 @@ impl<const N: usize> Heap<N> {
 
         // Insert the entire heap onto the appropriate free list as a
         // single block.
-        let order = result.allocation_order(heap_size, 1)
+        let order = result
+            .allocation_order(heap_size, 1)
             .expect("Failed to calculate order for root heap block");
         result.free_list_insert(order, heap_base.as_ptr());
-        
+
         // Return our newly-created heap.
         result
     }
@@ -126,16 +124,22 @@ impl<const N: usize> Heap<N> {
     /// did when allocating it, or everything will break horribly.
     pub fn allocation_size(&self, mut size: usize, align: usize) -> Option<usize> {
         // Sorry, we don't support weird alignments.
-        if !align.is_power_of_two() { return None; }
+        if !align.is_power_of_two() {
+            return None;
+        }
 
         // We can't align any more precisely than our heap base alignment
         // without getting much too clever, so don't bother.
-        if align > MIN_HEAP_ALIGN { return None; }
+        if align > MIN_HEAP_ALIGN {
+            return None;
+        }
 
         // We're automatically aligned to `size` because of how our heap is
         // sub-divided, but if we need a larger alignment, we can only do
         // it be allocating more memory.
-        if align > size { size = align; }
+        if align > size {
+            size = align;
+        }
 
         // We can't allocate blocks smaller than `min_block_size`.
         size = max(size, self.min_block_size);
@@ -144,7 +148,9 @@ impl<const N: usize> Heap<N> {
         size = size.next_power_of_two();
 
         // We can't allocate a block bigger than our heap.
-        if size > self.heap_size { return None; }
+        if size > self.heap_size {
+            return None;
+        }
 
         Some(size)
     }
@@ -153,9 +159,8 @@ impl<const N: usize> Heap<N> {
     /// `min_block_size` in order to get a large enough block, as well as
     /// the index we use into `free_lists`.
     pub fn allocation_order(&self, size: usize, align: usize) -> Option<usize> {
-        self.allocation_size(size, align).map(|s| {
-            (s.log2() - self.min_block_size_log2) as usize
-        })
+        self.allocation_size(size, align)
+            .map(|s| (s.log2() - self.min_block_size_log2) as usize)
     }
 
     /// The size of the blocks we allocate for a given order.
@@ -190,10 +195,7 @@ impl<const N: usize> Heap<N> {
     /// because then "nursery generation" allocations would probably tend
     /// to occur at lower addresses and then be faster to find / rule out
     /// finding.
-    unsafe fn free_list_remove(
-        &mut self, order: usize, block: *mut u8)
-        -> bool
-    {
+    unsafe fn free_list_remove(&mut self, order: usize, block: *mut u8) -> bool {
         let block_ptr = block as *mut FreeBlock;
 
         // Yuck, list traversals are gross without recursion.  Here,
@@ -222,9 +224,7 @@ impl<const N: usize> Heap<N> {
 
     /// Split a `block` of order `order` down into a block of order
     /// `order_needed`, placing any unused chunks on the free list.
-    unsafe fn split_free_block(
-        &mut self, block: *mut u8, mut order: usize, order_needed: usize)
-    {
+    unsafe fn split_free_block(&mut self, block: *mut u8, mut order: usize, order_needed: usize) {
         // Get the size of our starting block.
         let mut size_to_split = self.order_size(order);
 
@@ -247,18 +247,14 @@ impl<const N: usize> Heap<N> {
     ///
     /// All allocated memory must be passed to `deallocate` with the same
     /// `size` and `align` parameter, or else horrible things will happen.
-    pub unsafe fn allocate(&mut self, size: usize, align: usize) -> *mut u8
-    {
+    pub unsafe fn allocate(&mut self, size: usize, align: usize) -> *mut u8 {
         // Figure out which order block we need.
         if let Some(order_needed) = self.allocation_order(size, align) {
-
             // Start with the smallest acceptable block size, and search
             // upwards until we reach blocks the size of the entire heap.
             for order in order_needed..self.free_lists.len() {
-
                 // Do we have a block of this size?
                 if let Some(block) = self.free_list_pop(order) {
-
                     // If the block is too big, break it up.  This leaves
                     // the address unchanged, because we always allocate at
                     // the head of a block.
@@ -299,10 +295,9 @@ impl<const N: usize> Heap<N> {
     /// Deallocate a block allocated using `allocate`.  Note that the
     /// `old_size` and `align` values must match the values passed to
     /// `allocate`, or our heap will be corrupted.
-    pub unsafe fn deallocate(
-        &mut self, ptr: *mut u8, old_size: usize, align: usize)
-    {
-        let initial_order = self.allocation_order(old_size, align)
+    pub unsafe fn deallocate(&mut self, ptr: *mut u8, old_size: usize, align: usize) {
+        let initial_order = self
+            .allocation_order(old_size, align)
             .expect("Tried to dispose of invalid block");
 
         // The fun part: When deallocating a block, we also want to check
@@ -350,25 +345,29 @@ mod test {
         #[cfg(windows)]
         fn _aligned_free(ptr: *mut u8);
     }
-    
+
     /// This function wraps aligned allocation for Windows/Unix.
     unsafe fn aligned_alloc(alignment: usize, size: usize) -> *mut u8 {
-        #[cfg(unix)] {
+        #[cfg(unix)]
+        {
             memalign(alignment, usize)
         }
-        
-        #[cfg(windows)] {
+
+        #[cfg(windows)]
+        {
             _aligned_malloc(size, alignment)
         }
     }
-    
+
     /// This function wraps aligned frees for Windows/Unix.
     unsafe fn aligned_free(ptr: *mut u8) {
-        #[cfg(unix)] {
+        #[cfg(unix)]
+        {
             free(ptr)
         }
 
-        #[cfg(windows)] {
+        #[cfg(windows)]
+        {
             _aligned_free(ptr)
         }
     }
@@ -383,7 +382,7 @@ mod test {
             // TEST NEEDED: Can't align beyond MIN_HEAP_ALIGN.
 
             // Can't align beyond heap_size.
-            assert_eq!(None, heap.allocation_size(256, 256*2));
+            assert_eq!(None, heap.allocation_size(256, 256 * 2));
 
             // Simple allocations just round up to next block size.
             assert_eq!(Some(16), heap.allocation_size(0, 1));
@@ -493,4 +492,4 @@ mod test {
             aligned_free(mem);
         }
     }
-}        
+}
