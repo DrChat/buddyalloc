@@ -65,7 +65,7 @@ pub struct Heap<const N: usize> {
     min_block_size_log2: u8,
 }
 
-// A Heap struct is the sole owner of the memory it manages
+// This structure can safely be sent between threads.
 unsafe impl<const N: usize> Send for Heap<N> {}
 
 impl<const N: usize> Heap<N> {
@@ -237,7 +237,7 @@ impl<const N: usize> Heap<N> {
             order -= 1;
 
             // Insert the "upper half" of the block into the free list.
-            let split = block.offset(size_to_split as isize);
+            let split = block.add(size_to_split);
             self.free_list_insert(order, split);
         }
     }
@@ -254,7 +254,7 @@ impl<const N: usize> Heap<N> {
         } else {
             // Fun: We can find our buddy by xoring the right bit in our
             // offset from the base of the heap.
-            Some(unsafe { self.heap_base.offset((relative ^ size) as isize) })
+            Some(unsafe { self.heap_base.add(relative ^ size) })
         }
     }
 
