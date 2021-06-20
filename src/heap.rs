@@ -38,6 +38,9 @@ impl FreeBlock {
 /// The interface to a heap.  This data structure is stored _outside_ the
 /// heap somewhere, because every single byte of our heap is potentially
 /// available for allocation.
+///
+/// The generic parameter N specifies the number of steps to divide the
+/// available heap size by two. This will be the minimum allocable block size.
 pub struct Heap<const N: usize> {
     /// The base address of our heap.  This must be aligned on a
     /// `MIN_HEAP_ALIGN` boundary.
@@ -53,7 +56,7 @@ pub struct Heap<const N: usize> {
     free_lists: [*mut FreeBlock; N],
 
     /// Our minimum block size.  This is calculated based on `heap_size`
-    /// and the length of the provided `free_lists` array, and it must be
+    /// and the generic parameter N, and it must be
     /// big enough to contain a `FreeBlock` header object.
     min_block_size: usize,
 
@@ -241,13 +244,13 @@ impl<const N: usize> Heap<N> {
     }
 
     /// Allocate a block of memory large enough to contain `size` bytes,
-    /// and aligned on `align`.  This will return NULL if the `align` is
+    /// and aligned on `align`.  This will return [None] if the `align` is
     /// greater than `MIN_HEAP_ALIGN`, if `align` is not a power of 2, or
     /// if we can't find enough memory.
     ///
     /// All allocated memory must be passed to `deallocate` with the same
     /// `size` and `align` parameter, or else horrible things will happen.
-    pub unsafe fn allocate(&mut self, size: usize, align: usize) -> *mut u8 {
+    pub unsafe fn allocate(&mut self, size: usize, align: usize) -> Option<*mut u8> {
         // Figure out which order block we need.
         if let Some(order_needed) = self.allocation_order(size, align) {
             // Start with the smallest acceptable block size, and search
@@ -263,16 +266,16 @@ impl<const N: usize> Heap<N> {
                     }
 
                     // We have an allocation, so quit now.
-                    return block;
+                    return Some(block);
                 }
             }
 
             // We couldn't find a large enough block for this allocation.
-            ptr::null_mut()
+            None
         } else {
             // We can't allocate a block with the specified size and
             // alignment.
-            ptr::null_mut()
+            None
         }
     }
 
@@ -350,7 +353,7 @@ mod test {
     unsafe fn aligned_alloc(alignment: usize, size: usize) -> *mut u8 {
         #[cfg(unix)]
         {
-            memalign(alignment, usize)
+            memalign(alignment, size)
         }
 
         #[cfg(windows)]
@@ -445,32 +448,32 @@ mod test {
             let mem = aligned_alloc(4096, heap_size);
             let mut heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size);
 
-            let block_16_0 = heap.allocate(8, 8);
+            let block_16_0 = heap.allocate(8, 8).unwrap();
             assert_eq!(mem, block_16_0);
 
             let bigger_than_heap = heap.allocate(4096, heap_size);
-            assert_eq!(ptr::null_mut(), bigger_than_heap);
+            assert_eq!(None, bigger_than_heap);
 
             let bigger_than_free = heap.allocate(heap_size, heap_size);
-            assert_eq!(ptr::null_mut(), bigger_than_free);
+            assert_eq!(None, bigger_than_free);
 
-            let block_16_1 = heap.allocate(8, 8);
+            let block_16_1 = heap.allocate(8, 8).unwrap();
             assert_eq!(mem.offset(16), block_16_1);
 
-            let block_16_2 = heap.allocate(8, 8);
+            let block_16_2 = heap.allocate(8, 8).unwrap();
             assert_eq!(mem.offset(32), block_16_2);
 
-            let block_32_2 = heap.allocate(32, 32);
+            let block_32_2 = heap.allocate(32, 32).unwrap();
             assert_eq!(mem.offset(64), block_32_2);
 
-            let block_16_3 = heap.allocate(8, 8);
+            let block_16_3 = heap.allocate(8, 8).unwrap();
             assert_eq!(mem.offset(48), block_16_3);
 
-            let block_128_1 = heap.allocate(128, 128);
+            let block_128_1 = heap.allocate(128, 128).unwrap();
             assert_eq!(mem.offset(128), block_128_1);
 
             let too_fragmented = heap.allocate(64, 64);
-            assert_eq!(ptr::null_mut(), too_fragmented);
+            assert_eq!(None, too_fragmented);
 
             heap.deallocate(block_32_2, 32, 32);
             heap.deallocate(block_16_0, 8, 8);
@@ -478,7 +481,7 @@ mod test {
             heap.deallocate(block_16_1, 8, 8);
             heap.deallocate(block_16_2, 8, 8);
 
-            let block_128_0 = heap.allocate(128, 128);
+            let block_128_0 = heap.allocate(128, 128).unwrap();
             assert_eq!(mem.offset(0), block_128_0);
 
             heap.deallocate(block_128_1, 128, 128);
@@ -486,7 +489,7 @@ mod test {
 
             // And allocate the whole heap, just to make sure everything
             // got cleaned up correctly.
-            let block_256_0 = heap.allocate(256, 256);
+            let block_256_0 = heap.allocate(256, 256).unwrap();
             assert_eq!(mem.offset(0), block_256_0);
 
             aligned_free(mem);
