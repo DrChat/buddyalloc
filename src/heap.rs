@@ -20,8 +20,15 @@ use crate::math::PowersOf2;
 const MIN_HEAP_ALIGN: usize = 4096;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum AllocationError {
+pub enum AllocationSizeError {
+    BadAlignment,
+    TooLarge,
+}
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AllocationError {
+    HeapExhausted,
+    InvalidSize(AllocationSizeError),
 }
 
 /// A free block in our heap.  This is actually a header that we store at
@@ -133,16 +140,20 @@ impl<const N: usize> Heap<N> {
     /// we've already allocated.  In particular, it's important to be able
     /// to calculate the same `allocation_size` when freeing memory as we
     /// did when allocating it, or everything will break horribly.
-    pub fn allocation_size(&self, mut size: usize, align: usize) -> Option<usize> {
+    pub fn allocation_size(
+        &self,
+        mut size: usize,
+        align: usize,
+    ) -> Result<usize, AllocationSizeError> {
         // Sorry, we don't support weird alignments.
         if !align.is_power_of_two() {
-            return None;
+            return Err(AllocationSizeError::BadAlignment);
         }
 
         // We can't align any more precisely than our heap base alignment
         // without getting much too clever, so don't bother.
         if align > MIN_HEAP_ALIGN {
-            return None;
+            return Err(AllocationSizeError::BadAlignment);
         }
 
         // We're automatically aligned to `size` because of how our heap is
@@ -160,16 +171,20 @@ impl<const N: usize> Heap<N> {
 
         // We can't allocate a block bigger than our heap.
         if size > self.heap_size {
-            return None;
+            return Err(AllocationSizeError::TooLarge);
         }
 
-        Some(size)
+        Ok(size)
     }
 
     /// The "order" of an allocation is how many times we need to double
     /// `min_block_size` in order to get a large enough block, as well as
     /// the index we use into `free_lists`.
-    pub fn allocation_order(&self, size: usize, align: usize) -> Option<usize> {
+    pub fn allocation_order(
+        &self,
+        size: usize,
+        align: usize,
+    ) -> Result<usize, AllocationSizeError> {
         self.allocation_size(size, align)
             .map(|s| (s.log2() - self.min_block_size_log2) as usize)
     }
@@ -278,33 +293,35 @@ impl<const N: usize> Heap<N> {
     ///
     /// All allocated memory must be passed to `deallocate` with the same
     /// `size` and `align` parameter, or else horrible things will happen.
-    pub fn allocate(&mut self, size: usize, align: usize) -> Option<*mut u8> {
+    pub fn allocate(&mut self, size: usize, align: usize) -> Result<*mut u8, AllocationError> {
         // Figure out which order block we need.
-        if let Some(order_needed) = self.allocation_order(size, align) {
-            // Start with the smallest acceptable block size, and search
-            // upwards until we reach blocks the size of the entire heap.
-            for order in order_needed..self.free_lists.len() {
-                // Do we have a block of this size?
-                if let Some(block) = self.free_list_pop(order) {
-                    // If the block is too big, break it up.  This leaves
-                    // the address unchanged, because we always allocate at
-                    // the head of a block.
-                    if order > order_needed {
-                        // SAFETY: The block came from the heap.
-                        unsafe { self.split_free_block(block, order, order_needed) };
-                    }
+        match self.allocation_order(size, align) {
+            Ok(order_needed) => {
+                // Start with the smallest acceptable block size, and search
+                // upwards until we reach blocks the size of the entire heap.
+                for order in order_needed..self.free_lists.len() {
+                    // Do we have a block of this size?
+                    if let Some(block) = self.free_list_pop(order) {
+                        // If the block is too big, break it up.  This leaves
+                        // the address unchanged, because we always allocate at
+                        // the head of a block.
+                        if order > order_needed {
+                            // SAFETY: The block came from the heap.
+                            unsafe { self.split_free_block(block, order, order_needed) };
+                        }
 
-                    // We have an allocation, so quit now.
-                    return Some(block);
+                        // We have an allocation, so quit now.
+                        return Ok(block);
+                    }
                 }
+
+                // We couldn't find a large enough block for this allocation.
+                Err(AllocationError::HeapExhausted)
             }
 
-            // We couldn't find a large enough block for this allocation.
-            None
-        } else {
             // We can't allocate a block with the specified size and
             // alignment.
-            None
+            Err(e) => Err(AllocationError::InvalidSize(e)),
         }
     }
 
@@ -398,28 +415,34 @@ mod test {
             // TEST NEEDED: Can't align beyond MIN_HEAP_ALIGN.
 
             // Can't align beyond heap_size.
-            assert_eq!(None, heap.allocation_size(256, 256 * 2));
+            assert_eq!(
+                Err(AllocationSizeError::TooLarge),
+                heap.allocation_size(256, 256 * 2)
+            );
 
             // Simple allocations just round up to next block size.
-            assert_eq!(Some(16), heap.allocation_size(0, 1));
-            assert_eq!(Some(16), heap.allocation_size(1, 1));
-            assert_eq!(Some(16), heap.allocation_size(16, 1));
-            assert_eq!(Some(32), heap.allocation_size(17, 1));
-            assert_eq!(Some(32), heap.allocation_size(32, 32));
-            assert_eq!(Some(256), heap.allocation_size(256, 256));
+            assert_eq!(Ok(16), heap.allocation_size(0, 1));
+            assert_eq!(Ok(16), heap.allocation_size(1, 1));
+            assert_eq!(Ok(16), heap.allocation_size(16, 1));
+            assert_eq!(Ok(32), heap.allocation_size(17, 1));
+            assert_eq!(Ok(32), heap.allocation_size(32, 32));
+            assert_eq!(Ok(256), heap.allocation_size(256, 256));
 
             // Aligned allocations use alignment as block size.
-            assert_eq!(Some(64), heap.allocation_size(16, 64));
+            assert_eq!(Ok(64), heap.allocation_size(16, 64));
 
             // Block orders.
-            assert_eq!(Some(0), heap.allocation_order(0, 1));
-            assert_eq!(Some(0), heap.allocation_order(1, 1));
-            assert_eq!(Some(0), heap.allocation_order(16, 16));
-            assert_eq!(Some(1), heap.allocation_order(32, 32));
-            assert_eq!(Some(2), heap.allocation_order(64, 64));
-            assert_eq!(Some(3), heap.allocation_order(128, 128));
-            assert_eq!(Some(4), heap.allocation_order(256, 256));
-            assert_eq!(None, heap.allocation_order(512, 512));
+            assert_eq!(Ok(0), heap.allocation_order(0, 1));
+            assert_eq!(Ok(0), heap.allocation_order(1, 1));
+            assert_eq!(Ok(0), heap.allocation_order(16, 16));
+            assert_eq!(Ok(1), heap.allocation_order(32, 32));
+            assert_eq!(Ok(2), heap.allocation_order(64, 64));
+            assert_eq!(Ok(3), heap.allocation_order(128, 128));
+            assert_eq!(Ok(4), heap.allocation_order(256, 256));
+            assert_eq!(
+                Err(AllocationSizeError::TooLarge),
+                heap.allocation_order(512, 512)
+            );
 
             aligned_free(mem);
         }
@@ -465,10 +488,13 @@ mod test {
             assert_eq!(mem, block_16_0);
 
             let bigger_than_heap = heap.allocate(4096, heap_size);
-            assert_eq!(None, bigger_than_heap);
+            assert_eq!(
+                Err(AllocationError::InvalidSize(AllocationSizeError::TooLarge)),
+                bigger_than_heap
+            );
 
             let bigger_than_free = heap.allocate(heap_size, heap_size);
-            assert_eq!(None, bigger_than_free);
+            assert_eq!(Err(AllocationError::HeapExhausted), bigger_than_free);
 
             let block_16_1 = heap.allocate(8, 8).unwrap();
             assert_eq!(mem.offset(16), block_16_1);
@@ -486,7 +512,7 @@ mod test {
             assert_eq!(mem.offset(128), block_128_1);
 
             let too_fragmented = heap.allocate(64, 64);
-            assert_eq!(None, too_fragmented);
+            assert_eq!(Err(AllocationError::HeapExhausted), too_fragmented);
 
             heap.deallocate(block_32_2, 32, 32);
             heap.deallocate(block_16_0, 8, 8);
