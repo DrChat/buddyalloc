@@ -13,10 +13,6 @@ edition = "2018"
 
 [features]
 
-# When this feature is enabled, build this crate as the actual Rust system
-# allocator.  This also requires pulling in a spinlock crate, to control
-# access to the shared heap.
-use-as-rust-allocator = ["spin"]
 
 [dependencies]
 spin = { version = ">=0.3.4,<0.5", optional = true }

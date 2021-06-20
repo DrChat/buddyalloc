@@ -9,18 +9,7 @@
 
 #![no_std]
 
-#![cfg_attr(feature = "use-as-rust-allocator", feature(allocator, const_fn))]
-#![cfg_attr(feature = "use-as-rust-allocator", allocator)]
-
-#[cfg(feature = "use-as-rust-allocator")]
-extern crate spin;
-
-#[cfg(feature = "use-as-rust-allocator")]
-pub use integration::*;
 pub use heap::{Heap, FreeBlock};
 
 mod math;
 mod heap;
-
-#[cfg(feature = "use-as-rust-allocator")]
-mod integration;
