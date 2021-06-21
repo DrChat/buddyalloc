@@ -1,5 +1,5 @@
 //! A simple heap based on a buddy allocator.  For the theory of buddy
-//! allocators, see https://en.wikipedia.org/wiki/Buddy_memory_allocation
+//! allocators, see <https://en.wikipedia.org/wiki/Buddy_memory_allocation>
 //!
 //! The basic idea is that our heap size is a power of two, and the heap
 //! starts out as one giant free block.  When a memory allocation request
@@ -12,7 +12,7 @@
 //! block size.
 use core::cmp::{max, min};
 use core::mem::size_of;
-use core::ptr::NonNull;
+use core::ptr::{self, NonNull};
 use core::result::Result;
 
 use crate::math::PowersOf2;
@@ -29,6 +29,14 @@ pub enum AllocationSizeError {
 pub enum AllocationError {
     HeapExhausted,
     InvalidSize(AllocationSizeError),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CreationError {
+    BadBaseAlignment,
+    BadSizeAlignment,
+    BadHeapSize,
+    MinBlockTooSmall,
 }
 
 /// A free block in our heap.  This is actually a header that we store at
@@ -90,49 +98,59 @@ impl<const N: usize> Heap<N> {
     /// `heap_size / 2.pow(free_lists.len()-1)` must be greater than or
     /// equal to `size_of::<FreeBlock>()`.  Passing in invalid parameters
     /// may do horrible things.
-    pub unsafe fn new(heap_base: NonNull<u8>, heap_size: usize) -> Self {
+    pub unsafe fn new(heap_base: NonNull<u8>, heap_size: usize) -> Result<Self, CreationError> {
         // Calculate our minimum block size based on the number of free
         // lists we have available.
         let min_block_size = heap_size >> (N - 1);
 
         // The heap must be aligned on a 4K bounday.
-        assert_eq!(heap_base.as_ptr() as usize & (MIN_HEAP_ALIGN - 1), 0);
+        if heap_base.as_ptr() as usize & (MIN_HEAP_ALIGN - 1) != 0 {
+            return Err(CreationError::BadBaseAlignment);
+        }
 
         // The heap must be big enough to contain at least one block.
-        assert!(heap_size >= min_block_size);
+        if heap_size < min_block_size {
+            return Err(CreationError::BadHeapSize);
+        }
 
         // The smallest possible heap block must be big enough to contain
         // the block header.
-        assert!(min_block_size >= size_of::<FreeBlock>());
+        if min_block_size < size_of::<FreeBlock>() {
+            return Err(CreationError::MinBlockTooSmall);
+        }
 
-        // The heap size must be a power of 2.  See:
-        // http://graphics.stanford.edu/~seander/bithacks.html#DetermineIfPowerOf2
-        assert!(heap_size.is_power_of_two());
+        // The heap size must be a power of 2.
+        if !heap_size.is_power_of_two() {
+            return Err(CreationError::BadSizeAlignment);
+        }
 
         // We must have one free list per possible heap block size.
+        // FIXME: Can this assertion even be hit?
         assert_eq!(
             min_block_size * (2u32.pow(N as u32 - 1)) as usize,
             heap_size
         );
 
+        assert!(N > 0);
+        let mut free_lists: [*mut FreeBlock; N] = [core::ptr::null_mut(); N];
+
+        // Initialize the heap data as a single free block.
+        let free_block = heap_base.as_ptr() as *mut FreeBlock;
+        *free_block = FreeBlock::new(ptr::null_mut());
+
+        // Insert the entire heap into the last free list.
+        // See the documentation for `free_lists` - the last entry contains
+        // the entire heap iff no memory is allocated.
+        *free_lists.last_mut().unwrap() = free_block;
+
         // Store all the info about our heap in our struct.
-        let mut result = Heap {
+        Ok(Self {
             heap_base: heap_base.as_ptr(),
             heap_size,
-            free_lists: [core::ptr::null_mut(); N],
+            free_lists,
             min_block_size,
             min_block_size_log2: min_block_size.log2(),
-        };
-
-        // Insert the entire heap onto the appropriate free list as a
-        // single block.
-        let order = result
-            .allocation_order(heap_size, 1)
-            .expect("Failed to calculate order for root heap block");
-        result.free_list_insert(order, heap_base.as_ptr());
-
-        // Return our newly-created heap.
-        result
+        })
     }
 
     /// Figure out what size block we'll need to fulfill an allocation
@@ -410,9 +428,13 @@ mod test {
         unsafe {
             let heap_size = 256;
             let mem = aligned_alloc(4096, heap_size);
-            let heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size);
+            let heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size).unwrap();
 
-            // TEST NEEDED: Can't align beyond MIN_HEAP_ALIGN.
+            // Can't align beyond MIN_HEAP_ALIGN.
+            assert_eq!(
+                Err(AllocationSizeError::BadAlignment),
+                heap.allocation_size(256, 8192)
+            );
 
             // Can't align beyond heap_size.
             assert_eq!(
@@ -453,7 +475,7 @@ mod test {
         unsafe {
             let heap_size = 256;
             let mem = aligned_alloc(4096, heap_size);
-            let heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size);
+            let heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size).unwrap();
 
             let block_16_0 = mem;
             let block_16_1 = mem.offset(16);
@@ -482,7 +504,7 @@ mod test {
         unsafe {
             let heap_size = 256;
             let mem = aligned_alloc(4096, heap_size);
-            let mut heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size);
+            let mut heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size).unwrap();
 
             let block_16_0 = heap.allocate(8, 8).unwrap();
             assert_eq!(mem, block_16_0);
