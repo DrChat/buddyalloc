@@ -9,7 +9,7 @@
 
 #![no_std]
 
-pub use heap::{Heap, FreeBlock};
+pub use heap::Heap;
 
-mod math;
 mod heap;
+mod math;

@@ -41,8 +41,9 @@ pub enum CreationError {
 
 /// A free block in our heap.  This is actually a header that we store at
 /// the start of the block.  We don't store any size information in the
-/// header, because we a separate free block list for each block size.
-pub struct FreeBlock {
+/// header, because we allocate a separate free block list for each block
+/// size.
+struct FreeBlock {
     /// The next block in the free list, or NULL if this is the final
     /// block.
     next: *mut FreeBlock,
@@ -56,8 +57,8 @@ impl FreeBlock {
 }
 
 /// The interface to a heap.  This data structure is stored _outside_ the
-/// heap somewhere, because every single byte of our heap is potentially
-/// available for allocation.
+/// heap somewhere, typically in a static variable, because every single
+/// byte of our heap is potentially available for allocation.
 ///
 /// The generic parameter N specifies the number of steps to divide the
 /// available heap size by two. This will be the minimum allocable block size.
