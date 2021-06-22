@@ -308,9 +308,9 @@ impl<const N: usize> Heap<N> {
     }
 
     /// Allocate a block of memory large enough to contain `size` bytes,
-    /// and aligned on `align`.  This will return [None] if the `align` is
-    /// greater than `MIN_HEAP_ALIGN`, if `align` is not a power of 2, or
-    /// if we can't find enough memory.
+    /// and aligned on `align`.  This will return [AllocationError]
+    /// if the `align` is greater than `MIN_HEAP_ALIGN`, if `align` is not
+    /// a power of 2, or if we can't find enough memory.
     ///
     /// All allocated memory must be passed to `deallocate` with the same
     /// `size` and `align` parameter, or else horrible things will happen.
@@ -384,53 +384,16 @@ impl<const N: usize> Heap<N> {
 
 #[cfg(test)]
 mod test {
+    // Use std in tests.
+    extern crate std;
     use super::*;
-
-    extern "C" {
-        /// We need this to allocate aligned memory for our heap.
-        #[cfg(unix)]
-        fn memalign(alignment: usize, size: usize) -> *mut u8;
-        // Release our memory.
-        #[cfg(unix)]
-        fn free(ptr: *mut u8);
-
-        #[cfg(windows)]
-        fn _aligned_malloc(size: usize, alignment: usize) -> *mut u8;
-        #[cfg(windows)]
-        fn _aligned_free(ptr: *mut u8);
-    }
-
-    /// This function wraps aligned allocation for Windows/Unix.
-    unsafe fn aligned_alloc(alignment: usize, size: usize) -> *mut u8 {
-        #[cfg(unix)]
-        {
-            memalign(alignment, size)
-        }
-
-        #[cfg(windows)]
-        {
-            _aligned_malloc(size, alignment)
-        }
-    }
-
-    /// This function wraps aligned frees for Windows/Unix.
-    unsafe fn aligned_free(ptr: *mut u8) {
-        #[cfg(unix)]
-        {
-            free(ptr)
-        }
-
-        #[cfg(windows)]
-        {
-            _aligned_free(ptr)
-        }
-    }
 
     #[test]
     fn test_allocation_size_and_order() {
         unsafe {
             let heap_size = 256;
-            let mem = aligned_alloc(4096, heap_size);
+            let layout = std::alloc::Layout::from_size_align(heap_size, 4096).unwrap();
+            let mem = std::alloc::alloc(layout);
             let heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size).unwrap();
 
             // Can't align beyond MIN_HEAP_ALIGN.
@@ -469,7 +432,7 @@ mod test {
                 heap.allocation_order(512, 512)
             );
 
-            aligned_free(mem);
+            std::alloc::dealloc(mem, layout);
         }
     }
 
@@ -477,7 +440,8 @@ mod test {
     fn test_buddy() {
         unsafe {
             let heap_size = 256;
-            let mem = aligned_alloc(4096, heap_size);
+            let layout = std::alloc::Layout::from_size_align(heap_size, 4096).unwrap();
+            let mem = std::alloc::alloc(layout);
             let heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size).unwrap();
 
             let block_16_0 = mem;
@@ -498,7 +462,7 @@ mod test {
             let block_256_0 = mem;
             assert_eq!(None, heap.buddy(4, block_256_0));
 
-            aligned_free(mem);
+            std::alloc::dealloc(mem, layout);
         }
     }
 
@@ -506,7 +470,8 @@ mod test {
     fn test_alloc_and_dealloc() {
         unsafe {
             let heap_size = 256;
-            let mem = aligned_alloc(4096, heap_size);
+            let layout = std::alloc::Layout::from_size_align(heap_size, 4096).unwrap();
+            let mem = std::alloc::alloc(layout);
             let mut heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size).unwrap();
 
             let block_16_0 = heap.allocate(8, 8).unwrap();
@@ -556,7 +521,7 @@ mod test {
             let block_256_0 = heap.allocate(256, 256).unwrap();
             assert_eq!(mem.offset(0), block_256_0);
 
-            aligned_free(mem);
+            std::alloc::dealloc(mem, layout);
         }
     }
 }
