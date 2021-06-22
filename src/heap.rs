@@ -10,6 +10,7 @@
 //! size.  This simplifies a lot of bookkeeping, because all our block
 //! sizes are a power of 2, which makes it easy to have one free list per
 //! block size.
+use core::alloc::Layout;
 use core::cmp::{max, min};
 use core::mem::size_of;
 use core::ptr::{self, NonNull};
@@ -161,11 +162,7 @@ impl<const N: usize> Heap<N> {
     /// we've already allocated.  In particular, it's important to be able
     /// to calculate the same `allocation_size` when freeing memory as we
     /// did when allocating it, or everything will break horribly.
-    fn allocation_size(
-        &self,
-        mut size: usize,
-        align: usize,
-    ) -> Result<usize, AllocationSizeError> {
+    fn allocation_size(&self, mut size: usize, align: usize) -> Result<usize, AllocationSizeError> {
         // Sorry, we don't support weird alignments.
         if !align.is_power_of_two() {
             return Err(AllocationSizeError::BadAlignment);
@@ -201,11 +198,7 @@ impl<const N: usize> Heap<N> {
     /// The "order" of an allocation is how many times we need to double
     /// `min_block_size` in order to get a large enough block, as well as
     /// the index we use into `free_lists`.
-    fn allocation_order(
-        &self,
-        size: usize,
-        align: usize,
-    ) -> Result<usize, AllocationSizeError> {
+    fn allocation_order(&self, size: usize, align: usize) -> Result<usize, AllocationSizeError> {
         self.allocation_size(size, align)
             .map(|s| (log2(s) - self.min_block_size_log2) as usize)
     }
@@ -316,9 +309,9 @@ impl<const N: usize> Heap<N> {
     ///
     /// All allocated memory must be passed to `deallocate` with the same
     /// `size` and `align` parameter, or else horrible things will happen.
-    pub fn allocate(&mut self, size: usize, align: usize) -> Result<*mut u8, AllocationError> {
+    pub fn allocate(&mut self, layout: Layout) -> Result<*mut u8, AllocationError> {
         // Figure out which order block we need.
-        match self.allocation_order(size, align) {
+        match self.allocation_order(layout.size(), layout.align()) {
             Ok(order_needed) => {
                 // Start with the smallest acceptable block size, and search
                 // upwards until we reach blocks the size of the entire heap.
@@ -353,9 +346,9 @@ impl<const N: usize> Heap<N> {
     /// # Safety
     /// `old_size` and `align` values must match the values passed to
     /// `allocate`, or our heap will be corrupted.
-    pub unsafe fn deallocate(&mut self, ptr: *mut u8, old_size: usize, align: usize) {
+    pub unsafe fn deallocate(&mut self, ptr: *mut u8, layout: Layout) {
         let initial_order = self
-            .allocation_order(old_size, align)
+            .allocation_order(layout.size(), layout.align())
             .expect("Tried to dispose of invalid block");
 
         // The fun part: When deallocating a block, we also want to check
@@ -476,51 +469,68 @@ mod test {
             let mem = std::alloc::alloc(layout);
             let mut heap: Heap<5> = Heap::new(NonNull::new(mem).unwrap(), heap_size).unwrap();
 
-            let block_16_0 = heap.allocate(8, 8).unwrap();
+            let block_16_0 = heap
+                .allocate(Layout::from_size_align(8, 8).unwrap())
+                .unwrap();
             assert_eq!(mem, block_16_0);
 
-            let bigger_than_heap = heap.allocate(4096, heap_size);
+            let bigger_than_heap = heap.allocate(Layout::from_size_align(heap_size, 4096).unwrap());
             assert_eq!(
                 Err(AllocationError::InvalidSize(AllocationSizeError::TooLarge)),
                 bigger_than_heap
             );
 
-            let bigger_than_free = heap.allocate(heap_size, heap_size);
+            let bigger_than_free =
+                heap.allocate(Layout::from_size_align(heap_size, heap_size).unwrap());
             assert_eq!(Err(AllocationError::HeapExhausted), bigger_than_free);
 
-            let block_16_1 = heap.allocate(8, 8).unwrap();
+            let block_16_1 = heap
+                .allocate(Layout::from_size_align(8, 8).unwrap())
+                .unwrap();
             assert_eq!(mem.offset(16), block_16_1);
 
-            let block_16_2 = heap.allocate(8, 8).unwrap();
+            let block_16_2 = heap
+                .allocate(Layout::from_size_align(8, 8).unwrap())
+                .unwrap();
             assert_eq!(mem.offset(32), block_16_2);
 
-            let block_32_2 = heap.allocate(32, 32).unwrap();
+            let block_32_2 = heap
+                .allocate(Layout::from_size_align(32, 32).unwrap())
+                .unwrap();
             assert_eq!(mem.offset(64), block_32_2);
 
-            let block_16_3 = heap.allocate(8, 8).unwrap();
+            let block_16_3 = heap
+                .allocate(Layout::from_size_align(8, 8).unwrap())
+                .unwrap();
             assert_eq!(mem.offset(48), block_16_3);
 
-            let block_128_1 = heap.allocate(128, 128).unwrap();
+            let block_128_1 = heap
+                .allocate(Layout::from_size_align(128, 128).unwrap())
+                .unwrap();
             assert_eq!(mem.offset(128), block_128_1);
 
-            let too_fragmented = heap.allocate(64, 64);
+            let too_fragmented = heap.allocate(Layout::from_size_align(64, 64).unwrap());
             assert_eq!(Err(AllocationError::HeapExhausted), too_fragmented);
 
-            heap.deallocate(block_32_2, 32, 32);
-            heap.deallocate(block_16_0, 8, 8);
-            heap.deallocate(block_16_3, 8, 8);
-            heap.deallocate(block_16_1, 8, 8);
-            heap.deallocate(block_16_2, 8, 8);
+            heap.deallocate(block_32_2, Layout::from_size_align(32, 32).unwrap());
+            heap.deallocate(block_16_0, Layout::from_size_align(8, 8).unwrap());
+            heap.deallocate(block_16_3, Layout::from_size_align(8, 8).unwrap());
+            heap.deallocate(block_16_1, Layout::from_size_align(8, 8).unwrap());
+            heap.deallocate(block_16_2, Layout::from_size_align(8, 8).unwrap());
 
-            let block_128_0 = heap.allocate(128, 128).unwrap();
+            let block_128_0 = heap
+                .allocate(Layout::from_size_align(128, 128).unwrap())
+                .unwrap();
             assert_eq!(mem.offset(0), block_128_0);
 
-            heap.deallocate(block_128_1, 128, 128);
-            heap.deallocate(block_128_0, 128, 128);
+            heap.deallocate(block_128_1, Layout::from_size_align(128, 128).unwrap());
+            heap.deallocate(block_128_0, Layout::from_size_align(128, 128).unwrap());
 
             // And allocate the whole heap, just to make sure everything
             // got cleaned up correctly.
-            let block_256_0 = heap.allocate(256, 256).unwrap();
+            let block_256_0 = heap
+                .allocate(Layout::from_size_align(256, 256).unwrap())
+                .unwrap();
             assert_eq!(mem.offset(0), block_256_0);
 
             std::alloc::dealloc(mem, layout);

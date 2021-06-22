@@ -13,9 +13,7 @@ unsafe impl<const N: usize> Allocator for LockedHeap<N> {
     fn allocate(&self, layout: std::alloc::Layout) -> Result<NonNull<[u8]>, AllocError> {
         let mut heap = self.0.lock().map_err(|_| AllocError)?;
 
-        let ptr = heap
-            .allocate(layout.size(), layout.align())
-            .map_err(|_| AllocError)?;
+        let ptr = heap.allocate(layout).map_err(|_| AllocError)?;
 
         // SAFETY: The pointer is guaranteed to not be NULL if the heap didn't return an error.
         Ok(unsafe { NonNull::new_unchecked(std::slice::from_raw_parts_mut(ptr, layout.size())) })
@@ -27,7 +25,7 @@ unsafe impl<const N: usize> Allocator for LockedHeap<N> {
             Err(_) => return,
         };
 
-        heap.deallocate(ptr.as_ptr(), layout.size(), layout.align());
+        heap.deallocate(ptr.as_ptr(), layout);
     }
 }
 
@@ -51,5 +49,7 @@ fn main() {
     drop(vec);
     drop(heap);
 
-    unsafe { std::alloc::dealloc(mem, layout); }
+    unsafe {
+        std::alloc::dealloc(mem, layout);
+    }
 }
