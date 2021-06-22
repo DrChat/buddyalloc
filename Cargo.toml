@@ -1,11 +1,11 @@
 [package]
-name = "alloc_buddy_simple"
-version = "0.1.2"
-authors = ["Eric Kidd <git@randomhacks.net>", "Jethro Beekman <jethro@jbeekman.nl>"]
+name = "buddyalloc"
+version = "0.1.4"
+authors = ["Eric Kidd <git@randomhacks.net>", "Jethro Beekman <jethro@jbeekman.nl>", "Justin Moore <me@justinm.one>"]
 
 description = "Simple, drop-in replacement allocator for Rust running on bare metal (no_std)"
-homepage = "https://github.com/emk/toyos-rs/tree/master/crates/alloc_buddy_simple"
-repository = "https://github.com/emk/toyos-rs"
+homepage = "https://github.com/DrChat/buddyalloc"
+repository = "https://github.com/DrChat/buddyalloc"
 readme = "README.md"
 keywords = ["no_std", "kernel", "allocator"]
 license = "Apache-2.0/MIT"

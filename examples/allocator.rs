@@ -1,6 +1,6 @@
 #![feature(allocator_api, const_mut_refs, const_ptr_offset)]
 
-use alloc_buddy_simple::Heap;
+use buddyalloc::Heap;
 use std::{
     alloc::{AllocError, Allocator, Layout},
     ptr::NonNull,

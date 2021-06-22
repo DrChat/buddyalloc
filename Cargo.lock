@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "alloc_buddy_simple"
-version = "0.1.2"
+name = "buddyalloc"
+version = "0.1.4"
