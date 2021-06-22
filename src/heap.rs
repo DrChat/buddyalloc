@@ -15,7 +15,7 @@ use core::mem::size_of;
 use core::ptr::{self, NonNull};
 use core::result::Result;
 
-use crate::math::PowersOf2;
+use crate::math::log2;
 
 const MIN_HEAP_ALIGN: usize = 4096;
 
@@ -62,6 +62,7 @@ impl FreeBlock {
 ///
 /// The generic parameter N specifies the number of steps to divide the
 /// available heap size by two. This will be the minimum allocable block size.
+#[derive(Debug)]
 pub struct Heap<const N: usize> {
     /// The base address of our heap.  This must be aligned on a
     /// `MIN_HEAP_ALIGN` boundary.
@@ -99,7 +100,7 @@ impl<const N: usize> Heap<N> {
     /// `heap_size / 2.pow(free_lists.len()-1)` must be greater than or
     /// equal to `size_of::<FreeBlock>()`.  Passing in invalid parameters
     /// may do horrible things.
-    pub unsafe fn new(heap_base: NonNull<u8>, heap_size: usize) -> Result<Self, CreationError> {
+    pub const unsafe fn new(heap_base: NonNull<u8>, heap_size: usize) -> Result<Self, CreationError> {
         // Calculate our minimum block size based on the number of free
         // lists we have available.
         let min_block_size = heap_size >> (N - 1);
@@ -150,7 +151,7 @@ impl<const N: usize> Heap<N> {
             heap_size,
             free_lists,
             min_block_size,
-            min_block_size_log2: min_block_size.log2(),
+            min_block_size_log2: log2(min_block_size),
         })
     }
 
@@ -205,7 +206,7 @@ impl<const N: usize> Heap<N> {
         align: usize,
     ) -> Result<usize, AllocationSizeError> {
         self.allocation_size(size, align)
-            .map(|s| (s.log2() - self.min_block_size_log2) as usize)
+            .map(|s| (log2(s) - self.min_block_size_log2) as usize)
     }
 
     /// The size of the blocks we allocate for a given order.

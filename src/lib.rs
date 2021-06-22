@@ -8,6 +8,7 @@
 //! Note that our `Heap` API is unstable.
 
 #![no_std]
+#![feature(const_mut_refs, const_raw_ptr_deref, const_raw_ptr_to_usize_cast)]
 
 pub use heap::Heap;
 
