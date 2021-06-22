@@ -25,6 +25,7 @@ pub enum AllocationSizeError {
     TooLarge,
 }
 
+/// Represents the reason for an allocation error.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AllocationError {
     HeapExhausted,
@@ -32,7 +33,7 @@ pub enum AllocationError {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum CreationError {
+pub enum HeapError {
     BadBaseAlignment,
     BadSizeAlignment,
     BadHeapSize,
@@ -100,30 +101,30 @@ impl<const N: usize> Heap<N> {
     /// `heap_size / 2.pow(free_lists.len()-1)` must be greater than or
     /// equal to `size_of::<FreeBlock>()`.  Passing in invalid parameters
     /// may do horrible things.
-    pub const unsafe fn new(heap_base: NonNull<u8>, heap_size: usize) -> Result<Self, CreationError> {
+    pub const unsafe fn new(heap_base: NonNull<u8>, heap_size: usize) -> Result<Self, HeapError> {
         // Calculate our minimum block size based on the number of free
         // lists we have available.
         let min_block_size = heap_size >> (N - 1);
 
         // The heap must be aligned on a 4K bounday.
         if heap_base.as_ptr() as usize & (MIN_HEAP_ALIGN - 1) != 0 {
-            return Err(CreationError::BadBaseAlignment);
+            return Err(HeapError::BadBaseAlignment);
         }
 
         // The heap must be big enough to contain at least one block.
         if heap_size < min_block_size {
-            return Err(CreationError::BadHeapSize);
+            return Err(HeapError::BadHeapSize);
         }
 
         // The smallest possible heap block must be big enough to contain
         // the block header.
         if min_block_size < size_of::<FreeBlock>() {
-            return Err(CreationError::MinBlockTooSmall);
+            return Err(HeapError::MinBlockTooSmall);
         }
 
         // The heap size must be a power of 2.
         if !heap_size.is_power_of_two() {
-            return Err(CreationError::BadSizeAlignment);
+            return Err(HeapError::BadSizeAlignment);
         }
 
         // We must have one free list per possible heap block size.
@@ -160,7 +161,7 @@ impl<const N: usize> Heap<N> {
     /// we've already allocated.  In particular, it's important to be able
     /// to calculate the same `allocation_size` when freeing memory as we
     /// did when allocating it, or everything will break horribly.
-    pub fn allocation_size(
+    fn allocation_size(
         &self,
         mut size: usize,
         align: usize,
@@ -200,7 +201,7 @@ impl<const N: usize> Heap<N> {
     /// The "order" of an allocation is how many times we need to double
     /// `min_block_size` in order to get a large enough block, as well as
     /// the index we use into `free_lists`.
-    pub fn allocation_order(
+    fn allocation_order(
         &self,
         size: usize,
         align: usize,
@@ -293,7 +294,7 @@ impl<const N: usize> Heap<N> {
     /// Given a `block` with the specified `order`, find the "buddy" block,
     /// that is, the other half of the block we originally split it from,
     /// and also the block we could potentially merge it with.
-    pub fn buddy(&self, order: usize, block: *mut u8) -> Option<*mut u8> {
+    fn buddy(&self, order: usize, block: *mut u8) -> Option<*mut u8> {
         assert!(block >= self.heap_base);
 
         let relative = unsafe { block.offset_from(self.heap_base) } as usize;
@@ -309,7 +310,7 @@ impl<const N: usize> Heap<N> {
     }
 
     /// Allocate a block of memory large enough to contain `size` bytes,
-    /// and aligned on `align`.  This will return [AllocationError]
+    /// and aligned on `align`.  This will return an [`AllocationError`]
     /// if the `align` is greater than `MIN_HEAP_ALIGN`, if `align` is not
     /// a power of 2, or if we can't find enough memory.
     ///
