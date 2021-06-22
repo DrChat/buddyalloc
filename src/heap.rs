@@ -51,7 +51,7 @@ struct FreeBlock {
 
 impl FreeBlock {
     /// Construct a `FreeBlock` header pointing at `next`.
-    fn new(next: *mut FreeBlock) -> FreeBlock {
+    const fn new(next: *mut FreeBlock) -> FreeBlock {
         FreeBlock { next }
     }
 }
@@ -127,12 +127,12 @@ impl<const N: usize> Heap<N> {
 
         // We must have one free list per possible heap block size.
         // FIXME: Can this assertion even be hit?
-        assert_eq!(
-            min_block_size * (2u32.pow(N as u32 - 1)) as usize,
-            heap_size
-        );
+        // assert_eq!(
+        //     min_block_size * (2u32.pow(N as u32 - 1)) as usize,
+        //     heap_size
+        // );
 
-        assert!(N > 0);
+        // assert!(N > 0);
         let mut free_lists: [*mut FreeBlock; N] = [core::ptr::null_mut(); N];
 
         // Initialize the heap data as a single free block.
@@ -142,7 +142,7 @@ impl<const N: usize> Heap<N> {
         // Insert the entire heap into the last free list.
         // See the documentation for `free_lists` - the last entry contains
         // the entire heap iff no memory is allocated.
-        *free_lists.last_mut().unwrap() = free_block;
+        free_lists[N - 1] = free_block;
 
         // Store all the info about our heap in our struct.
         Ok(Self {
@@ -209,7 +209,7 @@ impl<const N: usize> Heap<N> {
     }
 
     /// The size of the blocks we allocate for a given order.
-    fn order_size(&self, order: usize) -> usize {
+    const fn order_size(&self, order: usize) -> usize {
         1 << (self.min_block_size_log2 as usize + order)
     }
 
@@ -293,7 +293,9 @@ impl<const N: usize> Heap<N> {
     /// that is, the other half of the block we originally split it from,
     /// and also the block we could potentially merge it with.
     pub fn buddy(&self, order: usize, block: *mut u8) -> Option<*mut u8> {
-        let relative = (block as usize) - (self.heap_base as usize);
+        assert!(block >= self.heap_base);
+
+        let relative = unsafe { block.offset_from(self.heap_base) } as usize;
         let size = self.order_size(order);
         if size >= self.heap_size {
             // The main heap itself does not have a budy.
