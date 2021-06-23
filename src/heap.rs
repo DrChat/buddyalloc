@@ -136,10 +136,23 @@ impl<const N: usize> Heap<N> {
         // );
 
         // assert!(N > 0);
+        Ok(Self::new_unchecked(heap_base.as_ptr(), heap_size))
+    }
+
+    /// # Safety
+    /// `heap_base` must be aligned on a
+    /// `MIN_HEAP_ALIGN` boundary, `heap_size` must be a power of 2, and
+    /// `heap_size / 2.pow(free_lists.len()-1)` must be greater than or
+    /// equal to `size_of::<FreeBlock>()`.  Passing in invalid parameters
+    /// may do horrible things.
+    pub const unsafe fn new_unchecked(heap_base: *mut u8, heap_size: usize) -> Self {
+        // Calculate our minimum block size based on the number of free
+        // lists we have available.
+        let min_block_size = heap_size >> (N - 1);
         let mut free_lists: [*mut FreeBlock; N] = [core::ptr::null_mut(); N];
 
         // Initialize the heap data as a single free block.
-        let free_block = heap_base.as_ptr() as *mut FreeBlock;
+        let free_block = heap_base as *mut FreeBlock;
         *free_block = FreeBlock::new(ptr::null_mut());
 
         // Insert the entire heap into the last free list.
@@ -148,13 +161,13 @@ impl<const N: usize> Heap<N> {
         free_lists[N - 1] = free_block;
 
         // Store all the info about our heap in our struct.
-        Ok(Self {
-            heap_base: heap_base.as_ptr(),
+        Self {
+            heap_base: heap_base,
             heap_size,
             free_lists,
             min_block_size,
             min_block_size_log2: log2(min_block_size),
-        })
+        }
     }
 
     /// Figure out what size block we'll need to fulfill an allocation
