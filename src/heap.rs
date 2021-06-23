@@ -302,10 +302,10 @@ impl<const N: usize> Heap<N> {
         }
     }
 
-    /// Allocate a block of memory large enough to contain `size` bytes,
-    /// and aligned on `align`.  This will return an [`AllocationError`]
-    /// if the `align` is greater than `MIN_HEAP_ALIGN`, if `align` is not
-    /// a power of 2, or if we can't find enough memory.
+    /// Allocate a block of memory large enough to contain `layout`,
+    /// and aligned to `layout`.  This will return an [`AllocationError`]
+    /// if the alignment is greater than `MIN_HEAP_ALIGN`, or if
+    /// we can't find enough memory.
     ///
     /// All allocated memory must be passed to `deallocate` with the same
     /// `size` and `align` parameter, or else horrible things will happen.
@@ -344,8 +344,8 @@ impl<const N: usize> Heap<N> {
     /// Deallocate a block allocated using `allocate`.
     ///
     /// # Safety
-    /// `old_size` and `align` values must match the values passed to
-    /// `allocate`, or our heap will be corrupted.
+    /// `layout` must match what was passed to `allocate`,
+    /// or our heap will be corrupted.
     pub unsafe fn deallocate(&mut self, ptr: *mut u8, layout: Layout) {
         let initial_order = self
             .allocation_order(layout.size(), layout.align())
