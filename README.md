@@ -1,14 +1,8 @@
-# `alloc_buddy_simple`: A simple "buddy allocator" for bare-metal Rust
+# `buddyalloc`: A simple "buddy allocator" for bare-metal Rust
 
 Are you using Rust on bare metal with `#[no_std]`?  Do you lack even a
 working `malloc` and `free`?  Would you like to have a Rust-compatible
-allocator that works with `libcollections`?
-
-*WARNING:* OK, you shouldn't use `libcollections` for anything serious in
-kernel space, because it will panic if you ever run out of memory.  But if
-you just want to use a `Vec` or two at startup time, on a well-understood
-system, it's very convenient, and maybe you're willing to live with the
-consequences.
+allocator that works with `core::alloc`?
 
 This is a simple [buddy allocator][] that you can use a drop-in replacement
 for Rust's regular allocators.  It's highly experimental and may corrupt
@@ -19,64 +13,23 @@ There is a test suite which attempts to allocate and deallocate a bunch of
 memory, and which tries to make sure everything winds up at the expected
 location in memory each time.
 
+This library was originally based on the work done in the [toyos][]
+repository.
+
 [buddy allocator]: https://en.wikipedia.org/wiki/Buddy_memory_allocation
+[toyos]: https://github.com/emk/toyos-rs
 
 ## Using this allocator
-
 You can pull this into a Cargo build using:
 
 ```
-[dependencies.alloc_buddy_simple]
-git = "https://github.com/emk/toyos-rs"
-features = ["use-as-rust-allocator"]
+[dependencies.buddyalloc]
+git = "https://github.com/DrChat/buddyalloc.git"
 ```
 
-Then you'll need to allocate some memory for your heap somewhere.  This
-needs to be aligned on a 4096-byte boundary, and it needs to be a power of
-2 in size.  You could use the following declarations with `nasm`:
+Then see the [allocator.rs][] example for a good idea of how to use this heap.
 
-```asm
-section .bss
-align 4096
-HEAP_BOTTOM:
-        resb 4*1024*1024
-HEAP_TOP:
-```
-
-From there, all you need to do is (1) declare an array of free lists with
-enough space:
-
-```rust
-extern crate alloc_buddy_simple;
-
-use alloc_buddy_simple::{FreeBlock, initialize_allocator};
-
-static mut FREE_LISTS: [*mut FreeBlock; 19] = [0 as *mut _; 19];
-```
-
-The tricky bit here is the `19`.  This determines the minimum allocable
-block size, which will be `heap_size >> (19 - 1)`.  Your minimum block size
-must be at least as large as a `FreeBlock`.
-
-For calling `initialize_allocator`, see [the toyos `heap.rs` file][heap.rs]
-for example code.  Do this before trying to use your heap, or you will get
-a Rust panic!
-
-[heap.rs]: https://github.com/emk/toyos-rs/blob/master/src/heap.rs
-
-## Compiling a custom `libcollections`
-
-You will need to manually compile a bunch of libraries from the `rust/src`
-directory and copy them into
-`~/.multirust/toolchains/nightly/lib/rustlib/$(target)/lib` or the
-equivalent directory on your system.  For example code, see
-[the toyos `Makefile`][Makefile].
-
-You may also want to apply the [barebones nofp patch][nofp] to `libcore` if
-your kernel space does not support floating point.
-
-[Makefile]: https://github.com/emk/toyos-rs/blob/master/Makefile
-[nofp]: https://github.com/thepowersgang/rust-barebones-kernel/blob/master/libcore_nofp.patch
+[allocator.rs]: examples/allocator.rs
 
 ## Warning
 

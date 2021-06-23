@@ -7,8 +7,11 @@ use std::{
     sync::Mutex,
 };
 
+/// Declare a simple heap locked behind a Mutex.
 #[derive(Debug)]
 struct LockedHeap<const N: usize>(Mutex<Heap<N>>);
+
+/// Implement Rust's [Allocator] trait for the locked heap.
 unsafe impl<const N: usize> Allocator for LockedHeap<N> {
     fn allocate(&self, layout: std::alloc::Layout) -> Result<NonNull<[u8]>, AllocError> {
         let mut heap = self.0.lock().map_err(|_| AllocError)?;
@@ -30,9 +33,12 @@ unsafe impl<const N: usize> Allocator for LockedHeap<N> {
 }
 
 fn main() {
+    // Allocate the backing memory for our heap. This memory _MUST_
+    // be aligned by at least 4096.
     let layout = Layout::from_size_align(16384, 4096).unwrap();
     let mem = unsafe { std::alloc::alloc(layout) };
 
+    // Construct our locked heap, with a minimum block size of 16 (16384 >> 10).
     let heap: LockedHeap<10> = LockedHeap(Mutex::new(
         unsafe { Heap::new(NonNull::new(mem).unwrap(), 16384) }.unwrap(),
     ));
