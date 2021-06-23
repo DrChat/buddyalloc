@@ -151,14 +151,10 @@ impl<const N: usize> Heap<N> {
         let min_block_size = heap_size >> (N - 1);
         let mut free_lists: [*mut FreeBlock; N] = [core::ptr::null_mut(); N];
 
-        // Initialize the heap data as a single free block.
-        let free_block = heap_base as *mut FreeBlock;
-        *free_block = FreeBlock::new(ptr::null_mut());
-
         // Insert the entire heap into the last free list.
         // See the documentation for `free_lists` - the last entry contains
         // the entire heap iff no memory is allocated.
-        free_lists[N - 1] = free_block;
+        free_lists[N - 1] = heap_base as *mut FreeBlock;
 
         // Store all the info about our heap in our struct.
         Self {
@@ -225,7 +221,15 @@ impl<const N: usize> Heap<N> {
     fn free_list_pop(&mut self, order: usize) -> Option<*mut u8> {
         let candidate = self.free_lists[order];
         if !candidate.is_null() {
-            self.free_lists[order] = unsafe { (*candidate).next };
+            // N.B: If this is the entry corresponding to the entire heap,
+            // the next entry is always going to be NULL. Special-case it here
+            // to allow for uninitialized initial data.
+            if order != self.free_lists.len() - 1 {
+                self.free_lists[order] = unsafe { (*candidate).next };
+            } else {
+                self.free_lists[order] = ptr::null_mut();
+            }
+
             Some(candidate as *mut u8)
         } else {
             None
