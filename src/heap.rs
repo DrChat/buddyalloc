@@ -102,7 +102,7 @@ impl<const N: usize> Heap<N> {
     /// `heap_size / 2.pow(free_lists.len()-1)` must be greater than or
     /// equal to `size_of::<FreeBlock>()`.  Passing in invalid parameters
     /// may do horrible things.
-    pub const unsafe fn new(heap_base: NonNull<u8>, heap_size: usize) -> Result<Self, HeapError> {
+    pub unsafe fn new(heap_base: NonNull<u8>, heap_size: usize) -> Result<Self, HeapError> {
         // Calculate our minimum block size based on the number of free
         // lists we have available.
         let min_block_size = heap_size >> (N - 1);
