@@ -19,15 +19,26 @@ repository.
 [buddy allocator]: https://en.wikipedia.org/wiki/Buddy_memory_allocation
 [toyos]: https://github.com/emk/toyos-rs
 
+## Why this crate over the original buddy allocator?
+The last change made to the [original][] crate was back in 2016. It uses
+more unsafe code than I felt comfortable with, does not have detailed
+error reporting, and does not have an interface compatible with Rust's
+allocator trait.
+
+The new version minimizes the amount of unsafe code, preferring to return
+error codes if the API is misused (as well as providing unchecked variants).
+
+In addition, every possible error condition now has an associated error
+enum, ensuring reliable error reporting (which is important when you
+can't attach a debugger to an embedded system).
+
+And finally, since we report all possible error conditions, I've
+removed all panicking statements from this crate.
+
+[original]: https://github.com/emk/toyos-rs/tree/master/crates/alloc_buddy_simple
+
 ## Using this allocator
-You can pull this into a Cargo build using:
-
-```
-[dependencies.buddyalloc]
-git = "https://github.com/DrChat/buddyalloc.git"
-```
-
-Then see the [allocator.rs][] example for a good idea of how to use this heap.
+Pull this allocator using Cargo, and see the [allocator.rs][] example for a good idea of how to use this heap.
 
 [allocator.rs]: examples/allocator.rs
 
