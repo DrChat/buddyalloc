@@ -19,6 +19,24 @@ repository.
 [buddy allocator]: https://en.wikipedia.org/wiki/Buddy_memory_allocation
 [toyos]: https://github.com/emk/toyos-rs
 
+## Using this allocator
+```rust
+// This can be a block of free system memory on your microcontroller.
+const HEAP_MEM: usize  = 0xFFF0_0000;
+const HEAP_SIZE: usize = 0x0008_0000;
+
+let mut heap: Heap<16> = unsafe {
+    Heap::new(NonNull::new(HEAP_MEM as *mut u8).unwrap(), HEAP_SIZE).unwrap()
+};
+let mem = heap.allocate(Layout::from_size_align(16, 16).unwrap()).unwrap();
+
+// Yay! We have a 16-byte block of memory from the heap.
+```
+
+See the [allocator][] example for a more complete idea of how to use this heap.
+
+[allocator]: examples/allocator.rs
+
 ## Why this crate over the original buddy allocator?
 The last change made to the [original][] crate was back in 2016. It uses
 more unsafe code than I felt comfortable with, does not have detailed
@@ -37,25 +55,12 @@ removed all panicking statements from this crate.
 
 [original]: https://github.com/emk/toyos-rs/tree/master/crates/alloc_buddy_simple
 
-## Using this allocator
-Pull this allocator using Cargo, and see the [allocator.rs][] example for a good idea of how to use this heap.
-
-[allocator.rs]: examples/allocator.rs
-
-## Warning
-
-This has only been run in the "low half" of memory, and if you store your
-heap in the upper half of your memory range, you may run into some issues
-with `isize` versus `usize`.
-
 ## Licensing
 
 Licensed under the [Apache License, Version 2.0][LICENSE-APACHE] or the
 [MIT license][LICENSE-MIT], at your option.  This is HIGHLY EXPERIMENTAL
 CODE PROVIDED "AS IS", AND IT MAY DO HORRIBLE THINGS TO YOUR COMPUTER OR
-DATA.  But if you're using random unsafe, unstable Rust libraries in
-implementing a panicking version of `malloc` in kernel space, you probably
-knew that already.
+DATA.
 
 [LICENSE-APACHE]: http://www.apache.org/licenses/LICENSE-2.0
 [LICENSE-MIT]: http://opensource.org/licenses/MIT

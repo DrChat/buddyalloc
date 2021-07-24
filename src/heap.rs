@@ -66,6 +66,22 @@ impl FreeBlock {
 ///
 /// The generic parameter N specifies the number of steps to divide the
 /// available heap size by two. This will be the minimum allocable block size.
+///
+/// # Usage
+/// ```no_run
+/// # use buddyalloc::Heap;
+/// # use core::{alloc::Layout, ptr::NonNull};
+/// // This can be a block of free system memory on your microcontroller.
+/// const HEAP_MEM: usize  = 0xFFF0_0000;
+/// const HEAP_SIZE: usize = 0x0008_0000;
+///
+/// let mut heap: Heap<16> = unsafe {
+///     Heap::new(NonNull::new(HEAP_MEM as *mut u8).unwrap(), HEAP_SIZE).unwrap()
+/// };
+/// let mem = heap.allocate(Layout::from_size_align(16, 16).unwrap()).unwrap();
+///
+/// // Yay! We have a 16-byte block of memory from the heap.
+/// ```
 #[derive(Debug)]
 pub struct Heap<const N: usize> {
     /// The base address of our heap.  This must be aligned on a
