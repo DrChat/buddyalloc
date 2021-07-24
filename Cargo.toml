@@ -1,6 +1,6 @@
 [package]
 name = "buddyalloc"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Eric Kidd <git@randomhacks.net>", "Jethro Beekman <jethro@jbeekman.nl>", "Justin Moore <me@justinm.one>"]
 
 description = "Safe and simple drop-in allocator for Rust running on embedded or bare metal systems (no_std)"
