@@ -3,7 +3,7 @@ name = "buddyalloc"
 version = "0.1.4"
 authors = ["Eric Kidd <git@randomhacks.net>", "Jethro Beekman <jethro@jbeekman.nl>", "Justin Moore <me@justinm.one>"]
 
-description = "Simple, drop-in replacement allocator for Rust running on bare metal (no_std)"
+description = "Safe and simple drop-in allocator for Rust running on embedded or bare metal systems (no_std)"
 homepage = "https://github.com/DrChat/buddyalloc"
 repository = "https://github.com/DrChat/buddyalloc"
 readme = "README.md"
@@ -12,6 +12,5 @@ license = "Apache-2.0/MIT"
 edition = "2018"
 
 [features]
-
 
 [dependencies]
