@@ -5,8 +5,7 @@
 //! for Rust's system allocator.  It runs on top of `libcore`, so it can be
 //! used on bare metal or in kernel space.
 //!
-//! Note that our `Heap` API is unstable.
-
+//! Note that the [Heap] API is still somewhat unstable.
 #![no_std]
 
 pub use heap::*;

@@ -20,6 +20,7 @@ use crate::math::log2;
 
 const MIN_HEAP_ALIGN: usize = 4096;
 
+/// Represents an error for an allocation's size.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AllocationSizeError {
     BadAlignment,
@@ -33,6 +34,7 @@ pub enum AllocationError {
     InvalidSize(AllocationSizeError),
 }
 
+/// An error in the creation of the heap.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HeapError {
     BadBaseAlignment,
@@ -94,14 +96,7 @@ pub struct Heap<const N: usize> {
 unsafe impl<const N: usize> Send for Heap<N> {}
 
 impl<const N: usize> Heap<N> {
-    /// Create a new heap.
-    ///
-    /// # Safety
-    /// `heap_base` must be aligned on a
-    /// `MIN_HEAP_ALIGN` boundary, `heap_size` must be a power of 2, and
-    /// `heap_size / 2.pow(free_lists.len()-1)` must be greater than or
-    /// equal to `size_of::<FreeBlock>()`.  Passing in invalid parameters
-    /// may do horrible things.
+    /// Create a new heap. If any parameter is invalid, this will return a [HeapError].
     pub unsafe fn new(heap_base: NonNull<u8>, heap_size: usize) -> Result<Self, HeapError> {
         // Calculate our minimum block size based on the number of free
         // lists we have available.
@@ -139,6 +134,9 @@ impl<const N: usize> Heap<N> {
         Ok(Self::new_unchecked(heap_base.as_ptr(), heap_size))
     }
 
+    /// Create a new heap without checking for parameter validity.
+    /// Useful for const heap creation.
+    ///
     /// # Safety
     /// `heap_base` must be aligned on a
     /// `MIN_HEAP_ALIGN` boundary, `heap_size` must be a power of 2, and
@@ -325,7 +323,7 @@ impl<const N: usize> Heap<N> {
     /// we can't find enough memory.
     ///
     /// All allocated memory must be passed to `deallocate` with the same
-    /// `size` and `align` parameter, or else horrible things will happen.
+    /// `layout` parameter, or else horrible things will happen.
     pub fn allocate(&mut self, layout: Layout) -> Result<*mut u8, AllocationError> {
         // Figure out which order block we need.
         match self.allocation_order(layout.size(), layout.align()) {
@@ -361,7 +359,7 @@ impl<const N: usize> Heap<N> {
     /// Deallocate a block allocated using `allocate`.
     ///
     /// # Safety
-    /// `layout` must match what was passed to `allocate`,
+    /// `ptr` and `layout` must match what was passed to / returned from `allocate`,
     /// or our heap will be corrupted.
     pub unsafe fn deallocate(&mut self, ptr: *mut u8, layout: Layout) {
         let initial_order = self
