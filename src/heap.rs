@@ -89,7 +89,7 @@ impl FreeBlock {
 /// # use core::{alloc::Layout, ptr::NonNull};
 /// const HEAP_MEM: usize  = 0xFFF0_0000;
 /// const HEAP_SIZE: usize = 0x0008_0000;
-/// 
+///
 /// // You'll want to wrap this heap in a lock abstraction for real-world use.
 /// static mut ALLOCATOR: Heap<16> = unsafe {
 ///     Heap::new_unchecked(HEAP_MEM as *mut u8, HEAP_SIZE)
